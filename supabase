@@ -1,0 +1,137 @@
+-- Supabase schema + RLS for ventas app
+create extension if not exists "pgcrypto";
+
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text,
+  role text,
+  created_at timestamptz default now()
+);
+
+create table if not exists vendors (
+  id uuid primary key default gen_random_uuid(),
+  owner uuid references auth.users(id) on delete cascade,
+  name text not null,
+  id_number text,
+  role text,
+  created_at timestamptz default now()
+);
+
+create table if not exists sales (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  vendor_id uuid references vendors(id) on delete cascade,
+  sale_date date not null,
+  total_amount numeric not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists sale_items (
+  id uuid primary key default gen_random_uuid(),
+  sale_id uuid references sales(id) on delete cascade,
+  sku text not null,
+  quantity integer not null check (quantity >= 0)
+);
+
+create table if not exists skus (
+  id uuid primary key default gen_random_uuid(),
+  owner uuid references auth.users(id) on delete cascade,
+  name text unique not null
+);
+
+create table if not exists targets (
+  id uuid primary key default gen_random_uuid(),
+  vendor_id uuid references vendors(id) on delete cascade,
+  month_key text not null,
+  target_sales numeric not null,
+  unique (vendor_id, month_key)
+);
+
+create table if not exists machine_park (
+  id uuid primary key default gen_random_uuid(),
+  vendor_id uuid references vendors(id) on delete cascade,
+  month_key text not null,
+  total int default 0,
+  soluble int default 0,
+  grain int default 0,
+  unique (vendor_id, month_key)
+);
+
+create table if not exists machine_categories (
+  id uuid primary key default gen_random_uuid(),
+  vendor_id uuid references vendors(id) on delete cascade,
+  month_key text not null,
+  type_a int default 0,
+  type_b int default 0,
+  type_c int default 0,
+  death_zone int default 0,
+  real_death_zone int default 0,
+  unique (vendor_id, month_key)
+);
+
+create table if not exists quotas_processes (
+  id uuid primary key default gen_random_uuid(),
+  vendor_id uuid references vendors(id) on delete cascade,
+  month_key text not null,
+  monthly_quota int default 0,
+  current_processes int default 0,
+  unique (vendor_id, month_key)
+);
+
+-- RLS
+alter table profiles enable row level security;
+alter table vendors enable row level security;
+alter table sales enable row level security;
+alter table sale_items enable row level security;
+alter table skus enable row level security;
+alter table targets enable row level security;
+alter table machine_park enable row level security;
+alter table machine_categories enable row level security;
+alter table quotas_processes enable row level security;
+
+create policy "profiles: self" on profiles
+  for all using (auth.uid() = id) with check (auth.uid() = id);
+
+create policy "vendors: by owner" on vendors
+  for all using (owner = auth.uid()) with check (owner = auth.uid());
+
+create policy "sales: by user" on sales
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "sale_items: via sales" on sale_items
+  for all using (
+    exists (select 1 from sales s where s.id = sale_id and s.user_id = auth.uid())
+  ) with check (
+    exists (select 1 from sales s where s.id = sale_id and s.user_id = auth.uid())
+  );
+
+create policy "skus: by owner" on skus
+  for all using (owner = auth.uid()) with check (owner = auth.uid());
+
+create policy "targets: by vendor owner" on targets
+  for all using (
+    exists (select 1 from vendors v where v.id = vendor_id and v.owner = auth.uid())
+  ) with check (
+    exists (select 1 from vendors v where v.id = vendor_id and v.owner = auth.uid())
+  );
+
+create policy "park: by vendor owner" on machine_park
+  for all using (
+    exists (select 1 from vendors v where v.id = vendor_id and v.owner = auth.uid())
+  ) with check (
+    exists (select 1 from vendors v where v.id = vendor_id and v.owner = auth.uid())
+  );
+
+create policy "categories: by vendor owner" on machine_categories
+  for all using (
+    exists (select 1 from vendors v where v.id = vendor_id and v.owner = auth.uid())
+  ) with check (
+    exists (select 1 from vendors v where v.id = vendor_id and v.owner = auth.uid())
+  );
+
+create policy "quotas: by vendor owner" on quotas_processes
+  for all using (
+    exists (select 1 from vendors v where v.id = vendor_id and v.owner = auth.uid())
+  ) with check (
+    exists (select 1 from vendors v where v.id = vendor_id and v.owner = auth.uid())
+  );
